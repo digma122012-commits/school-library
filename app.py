@@ -530,6 +530,41 @@ def admin_panel():
     '''
     return render_page("🛠️ Админка", content)
 
+
+@app.route('/delete/<int:lesson_id>', methods=['POST'])
+@teacher_required
+def delete_lesson(lesson_id):
+    lessons = load_lessons()
+
+    # Находим урок по ID
+    lesson_to_delete = None
+    for lesson in lessons:
+        if lesson.get('id') == lesson_id:
+            lesson_to_delete = lesson
+            break
+
+    if not lesson_to_delete:
+        flash("❌ Материал не найден.", "error")
+        return redirect(url_for('teacher_upload'))
+
+    # Удаляем файл с диска
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], lesson_to_delete['filename'])
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    except Exception as e:
+        app.logger.error(f"Ошибка удаления файла: {e}")
+
+    # Удаляем из списка
+    lessons = [lesson for lesson in lessons if lesson.get('id') != lesson_id]
+    try:
+        save_lessons(lessons)
+        flash("✅ Материал успешно удалён!", "success")
+    except Exception as e:
+        flash(f"❌ Ошибка при удалении данных: {str(e)}", "error")
+
+    return redirect(url_for('teacher_upload'))
+
 @app.route('/admin/approve', methods=['POST'])
 @admin_required
 def approve_teacher():
@@ -627,9 +662,17 @@ def teacher_upload():
             <div class="card">
                 <div class="lesson-title">{lesson["title"]}</div>
                 <div class="lesson-desc">{lesson["description"]}</div>
-                <a href="{url_for('download_file', filename=lesson['filename'])}" class="btn btn-download">
-                    📥 {lesson["filename"]}
-                </a>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <a href="{url_for('download_file', filename=lesson['filename'])}" class="btn btn-download">
+                        📥 {lesson["filename"]}
+                    </a>
+                    <form method="POST" action="{url_for('delete_lesson', lesson_id=lesson['id'])}" 
+                          onsubmit="return confirm('Вы уверены, что хотите удалить этот материал?');">
+                        <button type="submit" class="btn" style="background: var(--error);">
+                            🗑️ Удалить
+                        </button>
+                    </form>
+                </div>
             </div>
             '''
     else:
