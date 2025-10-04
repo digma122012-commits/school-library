@@ -488,6 +488,18 @@ def admin_panel():
     pending = load_pending()
     teacher = load_teacher()
 
+    # Формируем HTML для активного учителя
+    if teacher:
+        teacher_html = f'''
+        <p><strong>{teacher['username']}</strong></p>
+        <form method="POST" action="/admin/delete-teacher" style="margin-top: 12px;">
+            <button type="submit" class="btn" style="background: var(--error);">🗑️ Удалить учителя</button>
+        </form>
+        '''
+    else:
+        teacher_html = '<p>Нет активного учителя</p>'
+
+    # Формируем HTML для заявок
     pending_html = ""
     if pending:
         for i, t in enumerate(pending):
@@ -510,14 +522,13 @@ def admin_panel():
 
     <h2>✅ Активный учитель</h2>
     <div class="card">
-        {"<p>Нет активного учителя</p>" if not teacher else f"<p><strong>{teacher['username']}</strong></p>"}
+        {teacher_html}
     </div>
 
     <h2>📥 Заявки на регистрацию</h2>
     {pending_html}
     '''
     return render_page("🛠️ Админка", content)
-
 
 @app.route('/admin/approve', methods=['POST'])
 @admin_required
@@ -529,6 +540,17 @@ def approve_teacher():
         save_teacher(teacher_data['username'], teacher_data['password_hash'])
         save_pending(pending)
         flash(f"✅ Учитель {teacher_data['username']} одобрен!", "success")
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/delete-teacher', methods=['POST'])
+@admin_required
+def delete_teacher():
+    try:
+        if os.path.exists(TEACHER_FILE):
+            os.remove(TEACHER_FILE)
+        flash("✅ Учитель удалён.", "success")
+    except Exception as e:
+        flash(f"❌ Ошибка удаления: {str(e)}", "error")
     return redirect(url_for('admin_panel'))
 
 
