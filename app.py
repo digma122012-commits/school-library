@@ -40,14 +40,14 @@ def save_lessons(lessons):
         json.dump(lessons, f, ensure_ascii=False, indent=2)
 
 
-# === Красивый HTML-шаблон (Material Design) ===
-HTML_TEMPLATE = '''
+# === Единый шаблон (без дублирования блоков) ===
+BASE_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}📚 Библиотека уроков{% endblock %}</title>
+    <title>{{ page_title }}</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
     <style>
         :root {
@@ -225,7 +225,7 @@ HTML_TEMPLATE = '''
 <body>
     <header>
         <div class="container">
-            <h1><span class="logo">📚</span> {% block title %}Библиотека уроков{% endblock %}</h1>
+            <h1><span class="logo">📚</span> {{ page_title }}</h1>
         </div>
     </header>
 
@@ -241,7 +241,7 @@ HTML_TEMPLATE = '''
                 {% endif %}
             {% endwith %}
 
-            {% block content %}{% endblock %}
+            {{ content_html | safe }}
         </div>
     </div>
 
@@ -253,33 +253,37 @@ HTML_TEMPLATE = '''
 '''
 
 
-# === Страницы ===
+def render_page(page_title, content_html):
+    return render_template_string(BASE_TEMPLATE, page_title=page_title, content_html=content_html)
+
+
+# === Роуты ===
 
 @app.route('/')
 def index():
     lessons = load_lessons()
-    content = '''
-    {% if lessons %}
-        {% for lesson in lessons %}
-        <div class="card">
-            <div class="lesson-title">{{ lesson.title }}</div>
-            <div class="lesson-desc">{{ lesson.description }}</div>
-            <a href="{{ url_for('download_file', filename=lesson.filename) }}" class="btn btn-download">
-                📥 Скачать файл
-            </a>
-        </div>
-        {% endfor %}
-    {% else %}
-        <div class="card">
-            <p style="text-align: center; color: var(--text-light);">📭 Пока нет учебных материалов.</p>
-        </div>
-    {% endif %}
+    if lessons:
+        lessons_html = ""
+        for lesson in lessons:
+            lessons_html += f'''
+            <div class="card">
+                <div class="lesson-title">{lesson["title"]}</div>
+                <div class="lesson-desc">{lesson["description"]}</div>
+                <a href="{url_for('download_file', filename=lesson['filename'])}" class="btn btn-download">
+                    📥 Скачать файл
+                </a>
+            </div>
+            '''
+    else:
+        lessons_html = '<div class="card"><p style="text-align: center; color: var(--text-light);">📭 Пока нет учебных материалов.</p></div>'
 
+    content = f'''
+    {lessons_html}
     <div class="teacher-link">
         <a href="/teacher">🔐 Войти как учитель</a>
     </div>
     '''
-    return render_template_string(HTML_TEMPLATE.replace('{% block content %}{% endblock %}', content))
+    return render_page("Библиотека уроков", content)
 
 
 @app.route('/teacher', methods=['GET', 'POST'])
@@ -302,9 +306,7 @@ def teacher_login():
         </form>
     </div>
     '''
-    return render_template_string(
-        HTML_TEMPLATE.replace('{% block title %}Библиотека уроков{% endblock %}', '🔐 Вход для учителя')
-        .replace('{% block content %}{% endblock %}', content))
+    return render_page("🔐 Вход для учителя", content)
 
 
 @app.route('/upload', methods=['GET', 'POST'])
@@ -341,8 +343,8 @@ def teacher_upload():
             return redirect(url_for('teacher_upload'))
 
     lessons = load_lessons()
-    lessons_html = ''
     if lessons:
+        lessons_html = ""
         for lesson in lessons:
             lessons_html += f'''
             <div class="card">
@@ -383,9 +385,7 @@ def teacher_upload():
         <a href="/">👀 Посмотреть как ученик</a>
     </div>
     '''
-    return render_template_string(
-        HTML_TEMPLATE.replace('{% block title %}Библиотека уроков{% endblock %}', '➕ Загрузка материалов')
-        .replace('{% block content %}{% endblock %}', content))
+    return render_page("➕ Загрузка материалов", content)
 
 
 @app.route('/download/<filename>')
