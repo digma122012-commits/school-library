@@ -1,12 +1,12 @@
 import os
-from flask import Flask, render_template_string, request, redirect, url_for, send_from_directory, flash
 import json
-from werkzeug.utils import secure_filename
+import hashlib
+from flask import Flask, render_template_string, request, redirect, url_for, send_from_directory, flash, session
 
 # === Настройки ===
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'zip', 'jpg', 'png', 'jpeg'}
-TEACHER_PASSWORD = os.environ.get('TEACHER_PASSWORD', 'teacher123')
+TEACHER_FILE = 'teacher.json'
 DB_FILE = 'lessons.json'
 
 app = Flask(__name__)
@@ -16,10 +16,24 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def load_teacher():
+    if not os.path.exists(TEACHER_FILE):
+        return None
+    try:
+        with open(TEACHER_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return None
+
+def save_teacher(username, password_hash):
+    with open(TEACHER_FILE, 'w', encoding='utf-8') as f:
+        json.dump({"username": username, "password_hash": password_hash}, f)
 
 def load_lessons():
     if not os.path.exists(DB_FILE):
@@ -31,16 +45,23 @@ def load_lessons():
                 return []
             return json.loads(content)
     except (json.JSONDecodeError, IOError):
-        save_lessons([])
         return []
-
 
 def save_lessons(lessons):
     with open(DB_FILE, 'w', encoding='utf-8') as f:
         json.dump(lessons, f, ensure_ascii=False, indent=2)
 
+# === Защита: только для учителя ===
+def teacher_required(f):
+    def wrapper(*args, **kwargs):
+        if 'teacher_logged_in' not in session:
+            flash("🔐 Пожалуйста, войдите в аккаунт учителя.", "error")
+            return redirect(url_for('teacher_login'))
+        return f(*args, **kwargs)
+    wrapper.__name__ = f.__name__
+    return wrapper
 
-# === Единый шаблон (без дублирования блоков) ===
+# === Шаблон (без футера, как ты просил) ===
 BASE_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ru">
@@ -246,16 +267,13 @@ BASE_TEMPLATE = '''
     </div>
 
     <footer class="container">
-        <p>© 2025 Школьная библиотека | Для учеников и учителей</p>
     </footer>
 </body>
 </html>
 '''
 
-
 def render_page(page_title, content_html):
     return render_template_string(BASE_TEMPLATE, page_title=page_title, content_html=content_html)
-
 
 # === Роуты ===
 
@@ -280,36 +298,106 @@ def index():
     content = f'''
     {lessons_html}
     <div class="teacher-link">
-        <a href="/teacher">🔐 Войти как учитель</a>
+        <a href="/teacher">🔐 Войти как учитель</a> | 
+        <a href="/register">📝 Зарегистрироваться</a>
     </div>
     '''
     return render_page("Библиотека уроков", content)
 
+# === Регистрация (доступна 1 раз) ===
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if load_teacher():
+        flash("✅ Учитель уже зарегистрирован. Войдите в аккаунт.", "success")
+        return redirect(url_for('teacher_login'))
 
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        confirm = request.form.get('confirm', '')
+
+        if not username or not password:
+            flash("⚠️ Заполните все поля.", "error")
+        elif password != confirm:
+            flash("❌ Пароли не совпадают.", "error")
+        elif len(password) < 6:
+            flash("⚠️ Пароль должен быть не короче 6 символов.", "error")
+        else:
+            save_teacher(username, hash_password(password))
+            flash("✅ Регистрация успешна! Теперь войдите.", "success")
+            return redirect(url_for('teacher_login'))
+
+    content = '''
+    <div class="card">
+        <h2>📝 Регистрация учителя</h2>
+        <p style="color: var(--text-light); margin-bottom: 20px;">Можно зарегистрировать только один аккаунт.</p>
+        <form method="POST">
+            <div class="form-group">
+                <label>Имя пользователя</label>
+                <input type="text" name="username" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>Пароль (минимум 6 символов)</label>
+                <input type="password" name="password" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>Подтвердите пароль</label>
+                <input type="password" name="confirm" class="form-control" required>
+            </div>
+            <button type="submit" class="btn">✅ Зарегистрироваться</button>
+        </form>
+    </div>
+    '''
+    return render_page("📝 Регистрация", content)
+
+# === Вход ===
 @app.route('/teacher', methods=['GET', 'POST'])
 def teacher_login():
     if request.method == 'POST':
-        if request.form.get('password') == TEACHER_PASSWORD:
+        username = request.form.get('username')
+        password = request.form.get('password')
+        teacher = load_teacher()
+
+        if teacher and teacher['username'] == username and teacher['password_hash'] == hash_password(password):
+            session['teacher_logged_in'] = True
+            session['teacher_name'] = username
+            flash(f"✅ Добро пожаловать, {username}!", "success")
             return redirect(url_for('teacher_upload'))
         else:
-            flash("❌ Неверный пароль! Попробуйте снова.", "error")
+            flash("❌ Неверное имя пользователя или пароль.", "error")
 
     content = '''
     <div class="card">
         <h2>🔐 Вход для учителя</h2>
         <form method="POST">
             <div class="form-group">
-                <label for="password">Пароль</label>
-                <input type="password" id="password" name="password" class="form-control" required autocomplete="off">
+                <label>Имя пользователя</label>
+                <input type="text" name="username" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>Пароль</label>
+                <input type="password" name="password" class="form-control" required>
             </div>
             <button type="submit" class="btn">Войти</button>
         </form>
+        <p style="margin-top: 16px; text-align: center;">
+            <a href="/register">📝 Ещё не зарегистрированы?</a>
+        </p>
     </div>
     '''
-    return render_page("🔐 Вход для учителя", content)
+    return render_page("🔐 Вход", content)
 
+# === Выход ===
+@app.route('/logout')
+def logout():
+    session.pop('teacher_logged_in', None)
+    session.pop('teacher_name', None)
+    flash("👋 Вы вышли из аккаунта.", "success")
+    return redirect(url_for('index'))
 
+# === Загрузка (только для учителя) ===
 @app.route('/upload', methods=['GET', 'POST'])
+@teacher_required
 def teacher_upload():
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
@@ -359,6 +447,10 @@ def teacher_upload():
         lessons_html = '<p style="text-align: center; color: var(--text-light);">Нет загруженных материалов.</p>'
 
     content = f'''
+    <div style="text-align: right; margin-bottom: 16px;">
+        Привет, {session.get("teacher_name")}! <a href="/logout" style="color: var(--error);">Выйти</a>
+    </div>
+
     <div class="card">
         <h2>➕ Добавить новый материал</h2>
         <form method="POST" enctype="multipart/form-data">
@@ -380,18 +472,12 @@ def teacher_upload():
 
     <h2 style="margin: 30px 0 16px; color: var(--primary-dark);">📁 Текущие материалы</h2>
     {lessons_html}
-
-    <div class="teacher-link">
-        <a href="/">👀 Посмотреть как ученик</a>
-    </div>
     '''
     return render_page("➕ Загрузка материалов", content)
-
 
 @app.route('/download/<filename>')
 def download_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
-
 
 # === Запуск ===
 if __name__ == '__main__':
