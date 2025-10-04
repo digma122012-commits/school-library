@@ -1,6 +1,7 @@
 import os
 import json
 import hashlib
+import uuid
 from flask import Flask, render_template_string, request, redirect, url_for, send_from_directory, flash, session
 
 # === Настройки ===
@@ -16,8 +17,9 @@ ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'school_library_secret_2024')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 МБ
 
+# Создаём папку uploads при запуске
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
@@ -35,13 +37,18 @@ def load_teacher():
     try:
         with open(TEACHER_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except:
+    except Exception as e:
+        app.logger.error(f"Ошибка загрузки учителя: {e}")
         return None
 
 
 def save_teacher(username, password_hash):
-    with open(TEACHER_FILE, 'w', encoding='utf-8') as f:
-        json.dump({"username": username, "password_hash": password_hash}, f)
+    try:
+        with open(TEACHER_FILE, 'w', encoding='utf-8') as f:
+            json.dump({"username": username, "password_hash": password_hash}, f)
+    except Exception as e:
+        app.logger.error(f"Ошибка сохранения учителя: {e}")
+        raise
 
 
 def load_pending():
@@ -50,13 +57,18 @@ def load_pending():
     try:
         with open(PENDING_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except:
+    except Exception as e:
+        app.logger.error(f"Ошибка загрузки заявок: {e}")
         return []
 
 
 def save_pending(pending_list):
-    with open(PENDING_FILE, 'w', encoding='utf-8') as f:
-        json.dump(pending_list, f, ensure_ascii=False, indent=2)
+    try:
+        with open(PENDING_FILE, 'w', encoding='utf-8') as f:
+            json.dump(pending_list, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        app.logger.error(f"Ошибка сохранения заявок: {e}")
+        raise
 
 
 def load_lessons():
@@ -68,13 +80,18 @@ def load_lessons():
             if not content:
                 return []
             return json.loads(content)
-    except (json.JSONDecodeError, IOError):
+    except (json.JSONDecodeError, IOError) as e:
+        app.logger.error(f"Ошибка загрузки уроков: {e}")
         return []
 
 
 def save_lessons(lessons):
-    with open(DB_FILE, 'w', encoding='utf-8') as f:
-        json.dump(lessons, f, ensure_ascii=False, indent=2)
+    try:
+        with open(DB_FILE, 'w', encoding='utf-8') as f:
+            json.dump(lessons, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        app.logger.error(f"Ошибка сохранения уроков: {e}")
+        raise
 
 
 # === Декораторы ===
@@ -319,7 +336,8 @@ def render_page(page_title, content_html):
     return render_template_string(BASE_TEMPLATE, page_title=page_title, content_html=content_html)
 
 
-# === Главная страница ===
+# === Роуты ===
+
 @app.route('/')
 def index():
     lessons = load_lessons()
@@ -348,7 +366,6 @@ def index():
     return render_page("Библиотека уроков", content)
 
 
-# === Подача заявки ===
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if load_teacher():
@@ -368,7 +385,6 @@ def register():
             flash("⚠️ Пароль должен быть не короче 6 символов.", "error")
         else:
             pending = load_pending()
-            # Проверим, не подавал ли уже заявку
             if any(t['username'] == username for t in pending):
                 flash("ℹ️ Заявка уже отправлена. Ожидайте одобрения.", "success")
             else:
@@ -406,7 +422,6 @@ def register():
     return render_page("📝 Заявка на регистрацию", content)
 
 
-# === Вход учителя ===
 @app.route('/teacher', methods=['GET', 'POST'])
 def teacher_login():
     if request.method == 'POST':
@@ -444,7 +459,6 @@ def teacher_login():
     return render_page("🔐 Вход", content)
 
 
-# === Админка: вход ===
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
@@ -469,7 +483,6 @@ def admin_login():
     return render_page("🔐 Админка — вход", content)
 
 
-# === Админка: одобрение заявок ===
 @app.route('/admin')
 @admin_required
 def admin_panel():
@@ -526,7 +539,6 @@ def admin_logout():
     return redirect(url_for('index'))
 
 
-# === Выход учителя ===
 @app.route('/logout')
 def logout():
     session.pop('teacher_logged_in', None)
@@ -535,7 +547,6 @@ def logout():
     return redirect(url_for('index'))
 
 
-# === Загрузка материалов ===
 @app.route('/upload', methods=['GET', 'POST'])
 @teacher_required
 def teacher_upload():
@@ -549,7 +560,14 @@ def teacher_upload():
         elif not allowed_file(file.filename):
             flash("❌ Недопустимый формат файла. Разрешены: PDF, DOCX, PPTX, TXT, ZIP, JPG, PNG.", "error")
         else:
+            # Безопасное имя файла (поддержка кириллицы и спецсимволов)
             filename = secure_filename(file.filename)
+            if not filename:
+                ext = os.path.splitext(file.filename)[1].lower()
+                if ext not in ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.txt', '.zip', '.jpg', '.jpeg', '.png']:
+                    ext = '.bin'
+                filename = f"upload_{uuid.uuid4().hex}{ext}"
+
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             counter = 1
             base, ext = os.path.splitext(filename)
@@ -557,7 +575,12 @@ def teacher_upload():
                 filename = f"{base}_{counter}{ext}"
                 filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 counter += 1
-            file.save(filepath)
+
+            try:
+                file.save(filepath)
+            except Exception as e:
+                flash(f"❌ Ошибка сохранения файла: {str(e)}", "error")
+                return redirect(url_for('teacher_upload'))
 
             lessons = load_lessons()
             lessons.append({
@@ -566,7 +589,12 @@ def teacher_upload():
                 "description": description,
                 "filename": filename
             })
-            save_lessons(lessons)
+            try:
+                save_lessons(lessons)
+            except Exception as e:
+                flash(f"❌ Ошибка сохранения данных: {str(e)}", "error")
+                return redirect(url_for('teacher_upload'))
+
             flash("✅ Материал успешно добавлен!", "success")
             return redirect(url_for('teacher_upload'))
 
@@ -618,7 +646,11 @@ def teacher_upload():
 
 @app.route('/download/<filename>')
 def download_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
+    try:
+        return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
+    except Exception as e:
+        flash(f"❌ Файл не найден: {str(e)}", "error")
+        return redirect(url_for('index'))
 
 
 # === Запуск ===
