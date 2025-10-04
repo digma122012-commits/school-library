@@ -6,23 +6,20 @@ from werkzeug.utils import secure_filename
 # === Настройки ===
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'zip', 'jpg', 'png', 'jpeg'}
-
-# 🔑 Пароль берём из переменной окружения (на Render зададим его там)
 TEACHER_PASSWORD = os.environ.get('TEACHER_PASSWORD', 'teacher123')
-
 DB_FILE = 'lessons.json'
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'school_library_secret_2024')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 МБ
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-# Создаём папку при запуске
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# === Вспомогательные функции ===
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 
 def load_lessons():
     if not os.path.exists(DB_FILE):
@@ -37,132 +34,278 @@ def load_lessons():
         save_lessons([])
         return []
 
+
 def save_lessons(lessons):
     with open(DB_FILE, 'w', encoding='utf-8') as f:
         json.dump(lessons, f, ensure_ascii=False, indent=2)
 
-# === HTML-шаблоны (встроены) ===
-BASE_TEMPLATE = '''
+
+# === Красивый HTML-шаблон (Material Design) ===
+HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Библиотека уроков</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}📚 Библиотека уроков{% endblock %}</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 0 15px; }
-        .alert { padding: 12px; margin: 15px 0; border-radius: 6px; }
-        .alert-error { background: #ffe6e6; color: #d32f2f; }
-        .alert-success { background: #e8f5e9; color: #2e7d32; }
-        .lesson { border: 1px solid #ddd; padding: 15px; margin: 15px 0; border-radius: 6px; }
-        a { color: #1a73e8; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        input, textarea, button { width: 100%; padding: 8px; margin: 5px 0; box-sizing: border-box; }
-        button { background: #4285f4; color: white; border: none; cursor: pointer; }
-        button:hover { background: #3367d6; }
+        :root {
+            --primary: #4285f4;
+            --primary-dark: #3367d6;
+            --success: #34a853;
+            --error: #ea4335;
+            --light-bg: #f8f9fa;
+            --card-bg: #ffffff;
+            --text: #202124;
+            --text-light: #5f6368;
+            --border: #dadce0;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            background-color: var(--light-bg);
+            color: var(--text);
+            line-height: 1.6;
+            padding-bottom: 40px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        header {
+            background: var(--primary);
+            color: white;
+            padding: 24px 0;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        header h1 {
+            font-weight: 500;
+            font-size: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+        .logo {
+            font-size: 28px;
+        }
+        .content {
+            margin-top: 30px;
+        }
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            padding: 24px;
+            margin-bottom: 24px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+        }
+        .card h2 {
+            font-size: 22px;
+            margin-bottom: 16px;
+            color: var(--primary-dark);
+        }
+        .lesson-title {
+            font-size: 20px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: var(--text);
+        }
+        .lesson-desc {
+            color: var(--text-light);
+            margin-bottom: 16px;
+            font-size: 15px;
+        }
+        .btn {
+            display: inline-block;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: background 0.2s;
+            border: none;
+            cursor: pointer;
+            font-size: 15px;
+        }
+        .btn:hover {
+            background: var(--primary-dark);
+        }
+        .btn-download {
+            background: var(--success);
+        }
+        .btn-download:hover {
+            background: #2e8b47;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            color: var(--text);
+        }
+        .form-control {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 15px;
+            font-family: inherit;
+        }
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+        }
+        .alert {
+            padding: 14px 18px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+        .alert-success {
+            background: #e6f4ea;
+            color: #137333;
+            border: 1px solid #8fd694;
+        }
+        .alert-error {
+            background: #fce8e6;
+            color: #c5221f;
+            border: 1px solid #f28b82;
+        }
+        .teacher-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .teacher-link a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .teacher-link a:hover {
+            text-decoration: underline;
+        }
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            color: var(--text-light);
+            font-size: 14px;
+        }
+        @media (max-width: 600px) {
+            header h1 {
+                font-size: 22px;
+            }
+            .card {
+                padding: 18px;
+            }
+            .btn {
+                width: 100%;
+                padding: 12px;
+            }
+        }
     </style>
 </head>
 <body>
-    <h1>📚 {% block title %}{% endblock %}</h1>
-    {% block content %}{% endblock %}
+    <header>
+        <div class="container">
+            <h1><span class="logo">📚</span> {% block title %}Библиотека уроков{% endblock %}</h1>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="content">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'success' if category == 'message' else 'error' }}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+
+    <footer class="container">
+        <p>© 2024 Школьная библиотека | Для учеников и учителей</p>
+    </footer>
 </body>
 </html>
 '''
 
-INDEX_TEMPLATE = BASE_TEMPLATE.replace(
-    '{% block title %}{% endblock %}', 'Библиотека уроков (для учеников)'
-).replace(
-    '{% block content %}{% endblock %}', '''
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% for category, message in messages %}
-            <div class="alert alert-{{ 'error' if 'error' in category else 'success' }}">{{ message }}</div>
-        {% endfor %}
-    {% endwith %}
 
-    {% if lessons %}
-        {% for lesson in lessons %}
-        <div class="lesson">
-            <h3>{{ lesson.title }}</h3>
-            <p><em>{{ lesson.description }}</em></p>
-            <p><a href="{{ url_for('download_file', filename=lesson.filename) }}">📥 Скачать: {{ lesson.filename }}</a></p>
-        </div>
-        {% endfor %}
-    {% else %}
-        <p>📭 Пока нет материалов.</p>
-    {% endif %}
+# === Страницы ===
 
-    <hr>
-    <p style="text-align: center;"><a href="/teacher">🔐 Учитель? Войдите здесь</a></p>
-'''
-)
-
-LOGIN_TEMPLATE = BASE_TEMPLATE.replace(
-    '{% block title %}{% endblock %}', 'Вход для учителя'
-).replace(
-    '{% block content %}{% endblock %}', '''
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% for category, message in messages %}
-            <div class="alert alert-{{ 'error' if 'error' in category else 'success' }}">{{ message }}</div>
-        {% endfor %}
-    {% endwith %}
-
-    <form method="POST" style="max-width: 400px; margin: 0 auto;">
-        <label>Пароль учителя:</label>
-        <input type="password" name="password" required>
-        <button type="submit">Войти</button>
-    </form>
-'''
-)
-
-UPLOAD_TEMPLATE = BASE_TEMPLATE.replace(
-    '{% block title %}{% endblock %}', 'Загрузка материалов (учитель)'
-).replace(
-    '{% block content %}{% endblock %}', '''
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% for category, message in messages %}
-            <div class="alert alert-{{ 'error' if 'error' in category else 'success' }}">{{ message }}</div>
-        {% endfor %}
-    {% endwith %}
-
-    <h3>Добавить материал</h3>
-    <form method="POST" enctype="multipart/form-data" style="max-width: 600px;">
-        <input type="text" name="title" placeholder="Название" required>
-        <textarea name="description" placeholder="Описание" rows="3" required></textarea>
-        <input type="file" name="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.zip,.jpg,.png" required>
-        <button type="submit">Загрузить</button>
-    </form>
-
-    <hr>
-    <h3>Текущие материалы</h3>
-    {% if lessons %}
-        {% for lesson in lessons %}
-        <div class="lesson">
-            <strong>{{ lesson.title }}</strong> — <a href="{{ url_for('download_file', filename=lesson.filename) }}">{{ lesson.filename }}</a>
-        </div>
-        {% endfor %}
-    {% else %}
-        <p>Нет материалов.</p>
-    {% endif %}
-
-    <p><a href="/">Посмотреть как ученик</a></p>
-'''
-)
-
-# === Роуты ===
 @app.route('/')
 def index():
     lessons = load_lessons()
-    return render_template_string(INDEX_TEMPLATE, lessons=lessons)
+    content = '''
+    {% if lessons %}
+        {% for lesson in lessons %}
+        <div class="card">
+            <div class="lesson-title">{{ lesson.title }}</div>
+            <div class="lesson-desc">{{ lesson.description }}</div>
+            <a href="{{ url_for('download_file', filename=lesson.filename) }}" class="btn btn-download">
+                📥 Скачать файл
+            </a>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="card">
+            <p style="text-align: center; color: var(--text-light);">📭 Пока нет учебных материалов.</p>
+        </div>
+    {% endif %}
+
+    <div class="teacher-link">
+        <a href="/teacher">🔐 Войти как учитель</a>
+    </div>
+    '''
+    return render_template_string(HTML_TEMPLATE.replace('{% block content %}{% endblock %}', content))
+
 
 @app.route('/teacher', methods=['GET', 'POST'])
 def teacher_login():
     if request.method == 'POST':
-        password = request.form.get('password')
-        if password == TEACHER_PASSWORD:
+        if request.form.get('password') == TEACHER_PASSWORD:
             return redirect(url_for('teacher_upload'))
         else:
-            flash("❌ Неверный пароль!", "error")
-    return render_template_string(LOGIN_TEMPLATE)
+            flash("❌ Неверный пароль! Попробуйте снова.", "error")
+
+    content = '''
+    <div class="card">
+        <h2>🔐 Вход для учителя</h2>
+        <form method="POST">
+            <div class="form-group">
+                <label for="password">Пароль</label>
+                <input type="password" id="password" name="password" class="form-control" required autocomplete="off">
+            </div>
+            <button type="submit" class="btn">Войти</button>
+        </form>
+    </div>
+    '''
+    return render_template_string(
+        HTML_TEMPLATE.replace('{% block title %}Библиотека уроков{% endblock %}', '🔐 Вход для учителя')
+        .replace('{% block content %}{% endblock %}', content))
+
 
 @app.route('/upload', methods=['GET', 'POST'])
 def teacher_upload():
@@ -172,9 +315,9 @@ def teacher_upload():
         file = request.files.get('file')
 
         if not title or not file or file.filename == '':
-            flash("⚠️ Заполните все поля.", "error")
+            flash("⚠️ Заполните название и выберите файл.", "error")
         elif not allowed_file(file.filename):
-            flash("❌ Недопустимый формат файла.", "error")
+            flash("❌ Недопустимый формат файла. Разрешены: PDF, DOCX, PPTX, TXT, ZIP, JPG, PNG.", "error")
         else:
             filename = secure_filename(file.filename)
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -194,17 +337,63 @@ def teacher_upload():
                 "filename": filename
             })
             save_lessons(lessons)
-            flash("✅ Успешно добавлено!", "success")
+            flash("✅ Материал успешно добавлен!", "success")
             return redirect(url_for('teacher_upload'))
 
     lessons = load_lessons()
-    return render_template_string(UPLOAD_TEMPLATE, lessons=lessons)
+    lessons_html = ''
+    if lessons:
+        for lesson in lessons:
+            lessons_html += f'''
+            <div class="card">
+                <div class="lesson-title">{lesson["title"]}</div>
+                <div class="lesson-desc">{lesson["description"]}</div>
+                <a href="{url_for('download_file', filename=lesson['filename'])}" class="btn btn-download">
+                    📥 {lesson["filename"]}
+                </a>
+            </div>
+            '''
+    else:
+        lessons_html = '<p style="text-align: center; color: var(--text-light);">Нет загруженных материалов.</p>'
+
+    content = f'''
+    <div class="card">
+        <h2>➕ Добавить новый материал</h2>
+        <form method="POST" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>Название урока</label>
+                <input type="text" name="title" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>Описание</label>
+                <textarea name="description" class="form-control" rows="3" required></textarea>
+            </div>
+            <div class="form-group">
+                <label>Файл (PDF, DOCX, PPTX, ZIP и др.)</label>
+                <input type="file" name="file" class="form-control" accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.zip,.jpg,.png,.jpeg" required>
+            </div>
+            <button type="submit" class="btn">📤 Загрузить</button>
+        </form>
+    </div>
+
+    <h2 style="margin: 30px 0 16px; color: var(--primary-dark);">📁 Текущие материалы</h2>
+    {lessons_html}
+
+    <div class="teacher-link">
+        <a href="/">👀 Посмотреть как ученик</a>
+    </div>
+    '''
+    return render_template_string(
+        HTML_TEMPLATE.replace('{% block title %}Библиотека уроков{% endblock %}', '➕ Загрузка материалов')
+        .replace('{% block content %}{% endblock %}', content))
+
 
 @app.route('/download/<filename>')
 def download_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename, as_attachment=True)
 
-# === Запуск для Render ===
+
+# === Запуск ===
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
