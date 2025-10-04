@@ -3,6 +3,7 @@ import json
 import hashlib
 import uuid
 from flask import Flask, render_template_string, request, redirect, url_for, send_from_directory, flash, session
+from werkzeug.utils import secure_filename  # ✅ ИМПОРТ ДОБАВЛЕН
 
 # === Настройки ===
 UPLOAD_FOLDER = 'uploads'
@@ -11,15 +12,13 @@ TEACHER_FILE = 'teacher.json'
 PENDING_FILE = 'pending_teachers.json'
 DB_FILE = 'lessons.json'
 
-# 🔑 Пароль администратора (задаётся в Render как переменная окружения)
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'school_library_secret_2024')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 МБ
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-# Создаём папку uploads при запуске
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
